@@ -53,12 +53,13 @@ compute(double target_seconds)
     }
 }
 
-int main(int argc, char **argv) {
+main(int argc, char **argv) {
 
-	int my_rank, num;
+	int my_rank, num, i;
 	int *buffer = NULL;
 	MPI_Request req;
 	MPI_Status stat;
+	int number = 10;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &num);
@@ -66,24 +67,31 @@ int main(int argc, char **argv) {
 		printf("Example must be run with 2 processes only.\n");
 		return 0;
 	}
+
 	MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
 	buffer = (int*)malloc(1000*sizeof(int));
+	for(i=0; i < 1000; i++)
+		buffer[i] = 0;
+
 	init_arrays();
 
 	if(my_rank == 0) {
 	//Send
-		MPI_Isend(&buffer, 1000, MPI_INT, 1, 123, MPI_COMM_WORLD, &req);
+		printf("Starting send...\n");
+		MPI_Isend(buffer, 1000, MPI_INT, 1, 123, MPI_COMM_WORLD, &req);
 		compute(5.0);
 		MPI_Wait(&req, &stat);
-	} else {
+	} else if(my_rank == 1) {
 	//Recv
-		MPI_Recv(&buffer, 1000, MPI_INT, 0, 123, MPI_COMM_WORLD, &stat);
+		MPI_Recv(buffer, 1000, MPI_INT, 0, 123, MPI_COMM_WORLD, &stat);
+		printf("Recieved message.\n");
 	}
 
 	MPI_Barrier(MPI_COMM_WORLD);
 
 	if(my_rank == 0) printf("Done.\n");
 
+	free(buffer);
+
 	MPI_Finalize(); 
-	return 0;
 }
