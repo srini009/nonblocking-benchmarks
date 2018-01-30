@@ -60,6 +60,7 @@ main(int argc, char **argv) {
 	MPI_Request req;
 	MPI_Status stat;
 	int number = 10;
+	double starttime, endtime;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &num);
@@ -69,27 +70,35 @@ main(int argc, char **argv) {
 	}
 
 	MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
-	buffer = (int*)malloc(1000*sizeof(int));
+	buffer = (int*)malloc(100000000*sizeof(int));
 	for(i=0; i < 1000; i++)
 		buffer[i] = 0;
 
 	init_arrays();
 
-	if(my_rank == 0) {
+	starttime = MPI_Wtime();
+
+	for(i=0; i < 30; i++) {
+
+	if(my_rank == 1) {
 	//Send
 		printf("Starting send...\n");
-		MPI_Isend(buffer, 1000, MPI_INT, 1, 123, MPI_COMM_WORLD, &req);
-		compute(5.0);
+		MPI_Isend(buffer, 100000000, MPI_INT, 0, 123, MPI_COMM_WORLD, &req);
+		compute(0.06);
 		MPI_Wait(&req, &stat);
-	} else if(my_rank == 1) {
+	} else if(my_rank == 0) {
 	//Recv
-		MPI_Recv(buffer, 1000, MPI_INT, 0, 123, MPI_COMM_WORLD, &stat);
-		printf("Recieved message.\n");
+		MPI_Recv(buffer, 100000000, MPI_INT, 1, 123, MPI_COMM_WORLD, &stat);
+		printf("Recieved message in iteration: %d\n", i);
+	}
+
+		MPI_Barrier(MPI_COMM_WORLD);
 	}
 
 	MPI_Barrier(MPI_COMM_WORLD);
+	endtime = MPI_Wtime();
 
-	if(my_rank == 0) printf("Done.\n");
+	if(my_rank == 0) printf("Done in %f seconds.\n", endtime - starttime);
 
 	free(buffer);
 
