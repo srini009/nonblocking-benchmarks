@@ -1,14 +1,17 @@
 /* Theory: By default, MVAPICH2 uses RDMA write for point-to-point data transfer using the rendezvous protocol.
- * However, when it happens that the sending side uses non-blocking semantics and the receiving side uses 
- * blocking semantics, this can be sub-optimal overall. Consider the following scenario:
+ * However, even when both the sending side and receiving side use non-blocking semantics, 
+ * this can be sub-optimal overall. Consider the following scenario:
  * a. Sending side sends an RNDV_START and moves ahead with computation
- * b. Receiving side is blocking, so it recieves the RNDV_START, and sends an RNDV_REPLY okaying the data transfer
- * c. Since this is an RDMA_WRITE for the sending side, actual data transfer may not begin until the sending side reaches
+ * b. Receiving side reaches MPI_Irecv later, so it recieves the RNDV_START, and sends an RNDV_REPLY okaying the data transfer
+ * c. Since this is an RDMA write for the sending side, actual data transfer may not begin until the sending side reaches
  *    MPI_Wait(), since the sending side needs to be "inside" MPI in order for communications to progress in the absence of a separate thread
  * d. Thus, data transfer starts only when the sending side reaches MPI_Wait(), and this is serializing communication and computation from the sending
  *    viewpoint.
- * e. In such a situation of non-blocking sender and blocking receiver without a separate thread, it is easy to show that using an RDMA_READ from the receiving side is
- *    optimal or near-optimal. Essentially we take advantage of the fact that the receiver has "nothing" to do when blocking on a receive, and might as well progress communication
+ * e. In such a situation of non-blocking sender and receiver without a separate thread, under "certain" conditions, we can show that using an RDMA read from the receiving side is
+ *    more optimal when the receiver reaches MPI_Irecv at a later point in time than the MPI_Isend. 
+ *    Conditions under which we would see a benefit with RDMA read:
+ *    i.   Receiver must reach the MPI_Irecv statement later than the MPI_Isend. Essentially, when inside the MPI_Irecv, receiver must be aware of the RNDV_START message
+ *    ii.  Sender must still be "computing" when the data transfer is started, and must IDEALLY still be computing when data transfer completes. This would ensure maximum overlap.
  *
  *    In order to see this behaviour, set MV2_RNDV_PROTOCOL=RGET (default is RPUT), and see the reduction in overall runtime. This is attributed to better sender side overlap.
  */
@@ -71,8 +74,8 @@ main(int argc, char **argv) {
 
 	int my_rank, num, i;
 	int *buffer = NULL;
-	MPI_Request req;
-	MPI_Status stat;
+	MPI_Request req, req2;
+	MPI_Status stat, stat2;
 	int number = 10;
 	double starttime, endtime;
 
@@ -98,11 +101,15 @@ main(int argc, char **argv) {
 	//Send
 		printf("Starting send...\n");
 		MPI_Isend(buffer, 100000000, MPI_INT, 0, 123, MPI_COMM_WORLD, &req);
-		compute(0.06);
+		compute(0.15);
 		MPI_Wait(&req, &stat);
 	} else if(my_rank == 0) {
 	//Recv
-		MPI_Recv(buffer, 100000000, MPI_INT, 1, 123, MPI_COMM_WORLD, &stat);
+		//Dummy compute to ensure that the receiver gets to the MPI_Irecv statement after the sender has sent an RNDV_START
+		compute(0.05);
+		MPI_Irecv(buffer, 100000000, MPI_INT, 1, 123, MPI_COMM_WORLD, &req2);
+		compute(0.06);
+		MPI_Wait(&req2, &stat2);
 		printf("Recieved message in iteration: %d\n", i);
 	}
 
